@@ -30,6 +30,8 @@ def process_text_with_ai(text):
     {text}
     """
 
+    print(f"Using OpenAI API key: {OPENAI_API_KEY[:5]}*****")  # Print first 5 chars of key for debugging
+
     response = openai.ChatCompletion.create(
     model="gpt-4o-mini",
         messages=[{"role": "system", "content": prompt}],
