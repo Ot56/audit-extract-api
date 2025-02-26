@@ -6,5 +6,4 @@ pytesseract
 pdf2image
 pillow
 requests
-re
 werkzeug
