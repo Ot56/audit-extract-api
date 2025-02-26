@@ -31,7 +31,7 @@ def process_text_with_ai(text):
     """
 
     response = openai.ChatCompletion.create(
-        model="gpt-4-turbo",
+    model="gpt-4o-mini",
         messages=[{"role": "system", "content": prompt}],
         api_key=OPENAI_API_KEY
     )
