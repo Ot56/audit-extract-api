@@ -1,3 +1,10 @@
 flask
 pdfplumber
+openai
 gunicorn
+pytesseract
+pdf2image
+pillow
+requests
+re
+werkzeug
