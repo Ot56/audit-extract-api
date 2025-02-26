@@ -7,3 +7,4 @@ pdf2image
 pillow
 requests
 werkzeug
+httpx==0.27.0
