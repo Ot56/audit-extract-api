@@ -1,102 +1,112 @@
-import json
+import openai
 import os
 import pdfplumber
-import openai
-import pytesseract
-import cv2
-import numpy as np
-from pdf2image import convert_from_path
+import re
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Charger la clé API OpenAI depuis les variables d’environnement
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise ValueError("❌ Clé API OpenAI manquante ! Ajoutez-la dans les variables d’environnement.")
+# Load OpenAI API key from environment variables
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-openai.api_key = OPENAI_API_KEY
-
-def extract_text_from_pdf(pdf_path):
-    """Extrait du texte depuis un PDF avec pdfplumber, et utilise Tesseract OCR si nécessaire."""
-    text = ""
-
-    try:
-        # 1️⃣ Extraction du texte avec pdfplumber (limité à 20 pages)
-                with pdfplumber.open(pdf_path) as pdf:
-                    num_pages = min(len(pdf.pages), 20)  # Limiter à 20 pages maximum
-                    for i in range(num_pages):
-                        page = pdf.pages[i]
-                        extracted_text = page.extract_text()
-                        if extracted_text:
-                            text += extracted_text + "\n"
-
-        # 2️⃣ Si pdfplumber ne trouve pas assez de texte, utiliser OCR avec Tesseract
-        if len(text.strip()) < 20:
-            print("⚠️ pdfplumber a échoué, utilisation de l'OCR (Tesseract)")
-            images = convert_from_path(pdf_path)
-            for img in images:
-                img_array = np.array(img)
-                gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
-                text += pytesseract.image_to_string(gray, lang="eng+fra") + "\n"
-
-    except Exception as e:
-        print(f"❌ Erreur d'extraction du texte : {e}")
-        return ""
-
-    return text.strip()
+# Initialize OpenAI Client for v1.0
+from openai import OpenAI
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 def process_text_with_ai(text):
-    """Envoie le texte extrait à OpenAI pour extraire les données structurées."""
+    """Send extracted text to OpenAI to structure the data."""
+    prompt = f"""
+    Extract the following details from the given text:
+    - Prénom
+    - Nom
+    - Adresse (Numéro, Voie, Code Postal, Ville)
+    - Classe énergétique avant et après travaux
+    - Date de réalisation de l’audit
+    - Identifiant de l’audit
+    - Consommation énergie (finale & primaire, avant & après)
+    - Surface avant et après projet
+    - Émission CO2 avant et après
+    - Date de la visite audit
+
+    Provide the data in JSON format.
+
+    Text:
+    {text}
+    """
+
     try:
-        response = openai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Extrais les données clés d'un rapport d'audit énergétique."},
-                {"role": "user", "content": f"Analyse ce rapport et retourne les informations en JSON formaté :\n\n{text}"}
-            ],
-            temperature=0
+        print(f"Using OpenAI API key: {OPENAI_API_KEY[:5]}*****")  # Debugging API key presence
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # Use GPT-4o Mini
+            messages=[{"role": "system", "content": prompt}]
         )
-        return response.choices[0].message.content
-    except openai.OpenAIError as e:
-        print(f"❌ Erreur API OpenAI : {e}")
-        return json.dumps({"error": "Erreur OpenAI", "details": str(e)})
 
-def safe_json_response(structured_data):
-    """Vérifie et retourne une réponse JSON valide."""
+        structured_data = response.choices[0].message.content
+        return structured_data
+
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"ERROR in OpenAI API call: {error_details}")  # Debugging - Print full error details
+        return jsonify({"error": f"OpenAI API error: {str(e)}"}), 500
+
+def extract_audit_data(pdf_path):
+    """Extracts text from PDF and processes it with OpenAI API."""
+    extracted_text = ""
+
     try:
-        print(f"📄 Données brutes extraites : {structured_data}")  # Debugging
-        if not structured_data or structured_data.strip() == "":
-            raise ValueError("Réponse JSON vide reçue.")
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                if page.extract_text():
+                    extracted_text += page.extract_text() + "\n"
 
-        structured_json = json.loads(structured_data)
-        return jsonify(structured_json)
-    except json.JSONDecodeError as e:
-        print(f"❌ Erreur JSON : {e}")
-        return jsonify({"error": "Format JSON invalide", "details": str(e)}), 500
-    except ValueError as e:
-        print(f"❌ Erreur de valeur : {e}")
-        return jsonify({"error": "Réponse vide de l'API OpenAI", "details": str(e)}), 500
+        # If no text was extracted, return an error
+        if not extracted_text.strip():
+            print("ERROR: No text extracted from PDF")  # Debugging
+            return jsonify({"error": "Could not extract text from the PDF"}), 400
 
-@app.route("/extract-audit-data", methods=["POST"])
+        print("Extracted Text:", extracted_text[:500])  # Debugging - Show first 500 chars
+
+        # Process the extracted text using OpenAI
+        structured_data = process_text_with_ai(extracted_text)
+        return structured_data
+
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"ERROR in PDF processing: {error_details}")  # Debugging - Print errors in Render logs
+        return jsonify({"error": f"PDF processing error: {str(e)}"}), 500
+
+@app.route('/extract-audit-data', methods=['POST'])
 def extract_data():
-    """Gère l'upload de fichier PDF, le traite et renvoie un JSON structuré."""
-    if "file" not in request.files:
-        return jsonify({"error": "Aucun fichier reçu"}), 400
+    """API endpoint to process uploaded PDF and return extracted data."""
+    if 'file' not in request.files:
+        print("ERROR: No file uploaded")  # Debugging
+        return jsonify({"error": "No file uploaded"}), 400
 
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "Fichier vide"}), 400
+    file = request.files['file']
+    
+    # Ensure the file is a PDF
+    if not file.filename.lower().endswith(".pdf"):
+        print("ERROR: Uploaded file is not a PDF")  # Debugging
+        return jsonify({"error": "Uploaded file is not a PDF"}), 400
 
-    temp_pdf_path = "/tmp/uploaded_audit.pdf"
-    file.save(temp_pdf_path)
+    file_path = os.path.join("/tmp", file.filename)
+    file.save(file_path)
 
-    extracted_text = extract_text_from_pdf(temp_pdf_path)
-    if not extracted_text:
-        return jsonify({"error": "Impossible d'extraire du texte du PDF"}), 500
+    try:
+        extracted_data = extract_audit_data(file_path)
+        os.remove(file_path)  # Free up memory
+        return jsonify(extracted_data)
 
-    structured_data = process_text_with_ai(extracted_text)
-    return safe_json_response(structured_data)
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"ERROR in extract_data: {error_details}")  # Debugging - Print errors in Render logs
+        os.remove(file_path)  # Ensure cleanup even on failure
+        return jsonify({"error": str(e)}), 500
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+if __name__ == '__main__':
+    print("Starting Flask server...")  # Debugging
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)), debug=True)
