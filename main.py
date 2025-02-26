@@ -1,7 +1,7 @@
 import openai
 import os
 import pdfplumber
-import re
+import json
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -9,12 +9,12 @@ app = Flask(__name__)
 # Load OpenAI API key from environment variables
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-# Initialize OpenAI Client for v1.0
+# Initialize OpenAI Client
 from openai import OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 def process_text_with_ai(text):
-    """Send extracted text to OpenAI to structure the data."""
+    """Send extracted text to OpenAI to structure the data correctly in valid JSON format."""
     prompt = f"""
     Extract the following details from the given text:
     - Prénom
@@ -28,8 +28,8 @@ def process_text_with_ai(text):
     - Émission CO2 avant et après
     - Date de la visite audit
 
-    Provide the data in JSON format.
-
+    Provide the data in **strict JSON format** with proper encoding and no extra text.
+    
     Text:
     {text}
     """
@@ -43,13 +43,15 @@ def process_text_with_ai(text):
         )
 
         structured_data = response.choices[0].message.content
-        return structured_data
+
+        # Ensure valid JSON format and proper encoding
+        return json.loads(structured_data)  
 
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"ERROR in OpenAI API call: {error_details}")  # Debugging - Print full error details
-        return jsonify({"error": f"OpenAI API error: {str(e)}"}), 500
+        print(f"ERROR in OpenAI API call: {error_details}")  # Debugging
+        return {"error": f"OpenAI API error: {str(e)}"}
 
 def extract_audit_data(pdf_path):
     """Extracts text from PDF and processes it with OpenAI API."""
@@ -57,26 +59,24 @@ def extract_audit_data(pdf_path):
 
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
+            for page in pdf.pages[:20]:  # Limit extraction to first 20 pages
                 if page.extract_text():
                     extracted_text += page.extract_text() + "\n"
 
-        # If no text was extracted, return an error
         if not extracted_text.strip():
             print("ERROR: No text extracted from PDF")  # Debugging
-            return jsonify({"error": "Could not extract text from the PDF"}), 400
+            return {"error": "Could not extract text from the PDF"}
 
         print("Extracted Text:", extracted_text[:500])  # Debugging - Show first 500 chars
 
-        # Process the extracted text using OpenAI
         structured_data = process_text_with_ai(extracted_text)
         return structured_data
 
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"ERROR in PDF processing: {error_details}")  # Debugging - Print errors in Render logs
-        return jsonify({"error": f"PDF processing error: {str(e)}"}), 500
+        print(f"ERROR in PDF processing: {error_details}")  # Debugging
+        return {"error": f"PDF processing error: {str(e)}"}
 
 @app.route('/extract-audit-data', methods=['POST'])
 def extract_data():
@@ -86,8 +86,7 @@ def extract_data():
         return jsonify({"error": "No file uploaded"}), 400
 
     file = request.files['file']
-    
-    # Ensure the file is a PDF
+
     if not file.filename.lower().endswith(".pdf"):
         print("ERROR: Uploaded file is not a PDF")  # Debugging
         return jsonify({"error": "Uploaded file is not a PDF"}), 400
@@ -98,13 +97,13 @@ def extract_data():
     try:
         extracted_data = extract_audit_data(file_path)
         os.remove(file_path)  # Free up memory
-        return jsonify(extracted_data)
+        return jsonify(extracted_data)  # Ensures proper JSON formatting
 
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"ERROR in extract_data: {error_details}")  # Debugging - Print errors in Render logs
-        os.remove(file_path)  # Ensure cleanup even on failure
+        print(f"ERROR in extract_data: {error_details}")  # Debugging
+        os.remove(file_path)  # Cleanup on failure
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
