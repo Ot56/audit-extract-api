@@ -1,7 +1,7 @@
 import openai
 import os
 import pdfplumber
-import re
+import requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -9,7 +9,7 @@ app = Flask(__name__)
 # Load OpenAI API key from environment variables
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-# Initialize OpenAI Client for v1.0
+# Initialize OpenAI Client
 from openai import OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -38,7 +38,7 @@ def process_text_with_ai(text):
         print(f"Using OpenAI API key: {OPENAI_API_KEY[:5]}*****")  # Debugging API key presence
 
         response = client.chat.completions.create(
-            model="gpt-4o-mini",  # Use GPT-4o Mini
+            model="gpt-4o-mini",
             messages=[{"role": "system", "content": prompt}]
         )
 
@@ -48,7 +48,7 @@ def process_text_with_ai(text):
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"ERROR in OpenAI API call: {error_details}")  # Debugging - Print full error details
+        print(f"ERROR in OpenAI API call: {error_details}")
         return jsonify({"error": f"OpenAI API error: {str(e)}"}), 500
 
 def extract_audit_data(pdf_path):
@@ -57,56 +57,58 @@ def extract_audit_data(pdf_path):
 
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
+            for page in pdf.pages[:20]:  # Limit to first 20 pages
                 if page.extract_text():
                     extracted_text += page.extract_text() + "\n"
 
-        # If no text was extracted, return an error
         if not extracted_text.strip():
-            print("ERROR: No text extracted from PDF")  # Debugging
+            print("ERROR: No text extracted from PDF")
             return jsonify({"error": "Could not extract text from the PDF"}), 400
 
-        print("Extracted Text:", extracted_text[:500])  # Debugging - Show first 500 chars
-
-        # Process the extracted text using OpenAI
+        print("Extracted Text:", extracted_text[:500])  # Debugging
         structured_data = process_text_with_ai(extracted_text)
         return structured_data
 
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"ERROR in PDF processing: {error_details}")  # Debugging - Print errors in Render logs
+        print(f"ERROR in PDF processing: {error_details}")
         return jsonify({"error": f"PDF processing error: {str(e)}"}), 500
 
 @app.route('/extract-audit-data', methods=['POST'])
 def extract_data():
-    """API endpoint to process uploaded PDF and return extracted data."""
-    if 'file' not in request.files:
-        print("ERROR: No file uploaded")  # Debugging
-        return jsonify({"error": "No file uploaded"}), 400
-
-    file = request.files['file']
-    
-    # Ensure the file is a PDF
-    if not file.filename.lower().endswith(".pdf"):
-        print("ERROR: Uploaded file is not a PDF")  # Debugging
-        return jsonify({"error": "Uploaded file is not a PDF"}), 400
-
-    file_path = os.path.join("/tmp", file.filename)
-    file.save(file_path)
+    """API endpoint to process uploaded PDF or download from URL."""
+    temp_pdf_path = "/tmp/audit_file.pdf"
 
     try:
-        extracted_data = extract_audit_data(file_path)
-        os.remove(file_path)  # Free up memory
+        # Case 1: File Upload
+        if "file" in request.files:
+            file = request.files["file"]
+            file.save(temp_pdf_path)
+
+        # Case 2: File URL
+        elif "file_url" in request.json:
+            file_url = request.json["file_url"]
+            response = requests.get(file_url)
+            if response.status_code == 200:
+                with open(temp_pdf_path, "wb") as f:
+                    f.write(response.content)
+            else:
+                return jsonify({"error": "Failed to download file"}), 400
+
+        else:
+            return jsonify({"error": "No file or URL received"}), 400
+
+        extracted_data = extract_audit_data(temp_pdf_path)
+        os.remove(temp_pdf_path)
         return jsonify(extracted_data)
 
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"ERROR in extract_data: {error_details}")  # Debugging - Print errors in Render logs
-        os.remove(file_path)  # Ensure cleanup even on failure
+        print(f"ERROR in extract_data: {error_details}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    print("Starting Flask server...")  # Debugging
+    print("Starting Flask server...")
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)), debug=True)
