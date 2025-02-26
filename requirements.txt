@@ -1,6 +1,6 @@
 flask
 pdfplumber
-openai
+openai==1.2.0
 gunicorn
 pytesseract
 pdf2image
