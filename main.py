@@ -99,7 +99,12 @@ def extract_data():
         extracted_data = extract_audit_data(file_path)
         os.remove(file_path)  # Free up memory
         import json
-return jsonify(json.loads(structured_data))
+try:
+    structured_json = json.loads(structured_data)
+    return jsonify(structured_json)
+except json.JSONDecodeError as e:
+    print(f"JSON Decoding Error: {e}")
+    return jsonify({"error": "Invalid JSON format"}), 500
 
 
     except Exception as e:
