@@ -14,7 +14,7 @@ from openai import OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 def process_text_with_ai(text):
-    """Send extracted text to OpenAI to structure the data correctly in valid JSON format."""
+    """Send extracted text to OpenAI and ensure a valid JSON response."""
     prompt = f"""
     Extract the following details from the given text:
     - Prénom
@@ -28,8 +28,8 @@ def process_text_with_ai(text):
     - Émission CO2 avant et après
     - Date de la visite audit
 
-    Provide the data in **strict JSON format** with proper encoding and no extra text.
-    
+    Provide the data in **strict JSON format** with no extra text.
+
     Text:
     {text}
     """
@@ -42,10 +42,16 @@ def process_text_with_ai(text):
             messages=[{"role": "system", "content": prompt}]
         )
 
-        structured_data = response.choices[0].message.content
+        structured_data = response.choices[0].message.content.strip()  # Ensure no leading/trailing spaces
 
-        # Ensure valid JSON format and proper encoding
-        return json.loads(structured_data)  
+        print(f"Raw OpenAI Response: {structured_data}")  # Debugging OpenAI response
+
+        # Ensure response is a valid JSON format
+        try:
+            return json.loads(structured_data)
+        except json.JSONDecodeError:
+            print(f"ERROR: Invalid JSON received from OpenAI: {structured_data}")
+            return {"error": "Invalid JSON format from OpenAI"}
 
     except Exception as e:
         import traceback
