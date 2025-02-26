@@ -9,6 +9,10 @@ app = Flask(__name__)
 # Load OpenAI API key from environment variables
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
+# Initialize OpenAI Client for v1.0
+from openai import OpenAI
+client = OpenAI(api_key=OPENAI_API_KEY)
+
 def process_text_with_ai(text):
     """Send extracted text to OpenAI to structure the data."""
     prompt = f"""
@@ -32,14 +36,13 @@ def process_text_with_ai(text):
 
     try:
         print(f"Using OpenAI API key: {OPENAI_API_KEY[:5]}*****")  # Debugging API key presence
-        
-        response = openai.ChatCompletion.create(
+
+        response = client.chat.completions.create(
             model="gpt-4o-mini",  # Use GPT-4o Mini
-            messages=[{"role": "system", "content": prompt}],
-            api_key=OPENAI_API_KEY
+            messages=[{"role": "system", "content": prompt}]
         )
 
-        structured_data = response["choices"][0]["message"]["content"]
+        structured_data = response.choices[0].message.content
         return structured_data
 
     except Exception as e:
@@ -70,6 +73,7 @@ def extract_audit_data(pdf_path):
         return structured_data
 
     except Exception as e:
+        import traceback
         error_details = traceback.format_exc()
         print(f"ERROR in PDF processing: {error_details}")  # Debugging - Print errors in Render logs
         return jsonify({"error": f"PDF processing error: {str(e)}"}), 500
@@ -97,6 +101,7 @@ def extract_data():
         return jsonify(extracted_data)
 
     except Exception as e:
+        import traceback
         error_details = traceback.format_exc()
         print(f"ERROR in extract_data: {error_details}")  # Debugging - Print errors in Render logs
         os.remove(file_path)  # Ensure cleanup even on failure
