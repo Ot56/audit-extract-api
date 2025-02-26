@@ -22,12 +22,14 @@ def extract_text_from_pdf(pdf_path):
     text = ""
 
     try:
-        # 1️⃣ Extraction du texte avec pdfplumber (méthode rapide)
-        with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
-                extracted_text = page.extract_text()
-                if extracted_text:
-                    text += extracted_text + "\n"
+        # 1️⃣ Extraction du texte avec pdfplumber (limité à 20 pages)
+                with pdfplumber.open(pdf_path) as pdf:
+                    num_pages = min(len(pdf.pages), 20)  # Limiter à 20 pages maximum
+                    for i in range(num_pages):
+                        page = pdf.pages[i]
+                        extracted_text = page.extract_text()
+                        if extracted_text:
+                            text += extracted_text + "\n"
 
         # 2️⃣ Si pdfplumber ne trouve pas assez de texte, utiliser OCR avec Tesseract
         if len(text.strip()) < 20:
