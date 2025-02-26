@@ -98,7 +98,9 @@ def extract_data():
     try:
         extracted_data = extract_audit_data(file_path)
         os.remove(file_path)  # Free up memory
-        return jsonify(extracted_data)
+        import json
+return jsonify(json.loads(structured_data))
+
 
     except Exception as e:
         import traceback
